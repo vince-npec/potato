@@ -16,12 +16,12 @@ def process_image(image):
     # Convert to grayscale
     gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
 
-    # Use PlantCV to threshold leaves
-    mask = pcv.threshold.binary(gray, threshold=100, max_value=255, object_type="dark")
+    # Use PlantCV to threshold leaves (Fixed Function)
+    mask = pcv.threshold.binary(gray_img=gray, threshold=100, max_value=255, object_type="dark")
 
-    # Fill holes and clean noise (Corrected functions)
-    mask = pcv.fill(mask)  # Updated function
-    mask = pcv.dilate(mask, ksize=5)  # Instead of closing
+    # Fill holes and clean noise (Fixed Functions)
+    mask = pcv.fill_holes(mask)
+    mask = pcv.dilate(mask, ksize=5)  # Use dilation instead of closing
 
     # Find and measure leaf objects
     analysis_image, leaf_contours, leaf_hierarchy = pcv.find_objects(img, mask)
