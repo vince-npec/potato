@@ -1,9 +1,6 @@
 streamlit
-ultralytics
 numpy
 pandas
 pillow
-torch
-torchvision
 opencv-python-headless
 plantcv
