@@ -5,11 +5,14 @@ from PIL import Image
 import cv2
 import plantcv as pcv
 
+# Define pixels per cm based on the known scale bar length
+PIXELS_PER_CM = 2817 / 6  # 469.5 pixels per cm
+
 # Function to process image using PlantCV
 def process_image(image):
     # Convert PIL image to OpenCV format
     img = np.array(image)
-    
+
     # Convert to grayscale
     gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
 
@@ -24,23 +27,28 @@ def process_image(image):
     analysis_image, leaf_contours, leaf_hierarchy = pcv.find_objects(img, mask)
     leaf_count = len(leaf_contours)
 
-    # Measure leaf traits
+    # Measure leaf traits and convert to cm
     leaf_data = []
     for i, contour in enumerate(leaf_contours):
         shape_data = pcv.morphology.analyze_boundaries(img, contour)
+        area_cm2 = shape_data['area'] / (PIXELS_PER_CM**2)
+        perimeter_cm = shape_data['perimeter'] / PIXELS_PER_CM
+        width_cm = shape_data['width'] / PIXELS_PER_CM
+        height_cm = shape_data['height'] / PIXELS_PER_CM
+
         leaf_data.append([
             i + 1,  # Leaf number
-            shape_data['area'], 
-            shape_data['perimeter'], 
-            shape_data['width'], 
-            shape_data['height']
+            area_cm2, 
+            perimeter_cm, 
+            width_cm, 
+            height_cm
         ])
 
     return analysis_image, mask, leaf_data, leaf_count
 
 # Streamlit UI
-st.title("Potato Leaf Detection & Phenotyping with PlantCV")
-st.write("Upload images for **automatic leaf segmentation, size measurement, and accuracy validation.**")
+st.title("Potato Leaf Detection & Measurement (Accurate Scale in CM)")
+st.write("Upload images for **automatic leaf segmentation, size measurement, and accuracy validation in cm.**")
 
 uploaded_files = st.file_uploader("Upload Image(s)", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
 
@@ -60,7 +68,7 @@ if uploaded_files:
         st.image(mask_pil, caption="Leaf Segmentation Mask", use_container_width=True)
 
         # Store results in DataFrame
-        df = pd.DataFrame(leaf_data, columns=["Leaf #", "Leaf Area (px²)", "Perimeter (px)", "Width (px)", "Height (px)"])
+        df = pd.DataFrame(leaf_data, columns=["Leaf #", "Leaf Area (cm²)", "Perimeter (cm)", "Width (cm)", "Height (cm)"])
         df.insert(0, "Image", uploaded_file.name)
         results_list.append(df)
 
@@ -70,4 +78,4 @@ if uploaded_files:
 
     # Download results as CSV
     csv = final_df.to_csv(index=False).encode('utf-8')
-    st.download_button("Download CSV", csv, "leaf_measurements.csv", "text/csv")
+    st.download_button("Download CSV", csv, "leaf_measurements_cm.csv", "text/csv")
