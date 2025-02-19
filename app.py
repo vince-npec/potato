@@ -16,12 +16,12 @@ def process_image(image):
     # Convert to grayscale
     gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
 
-    # Use PlantCV thresholding to segment leaves
-    _, mask = cv2.threshold(gray, 100, 255, cv2.THRESH_BINARY_INV)
+    # Use PlantCV to threshold leaves
+    mask = pcv.threshold.binary(gray, threshold=100, max_value=255, object_type="dark")
 
-    # Filter out small noise and non-leaf regions
-    mask = pcv.morphology.fill_holes(mask)
-    mask = pcv.morphology.closing(mask, 5)
+    # Fill holes and clean noise (Corrected functions)
+    mask = pcv.fill(mask)  # Updated function
+    mask = pcv.dilate(mask, ksize=5)  # Instead of closing
 
     # Find and measure leaf objects
     analysis_image, leaf_contours, leaf_hierarchy = pcv.find_objects(img, mask)
@@ -30,7 +30,7 @@ def process_image(image):
     # Measure leaf traits and convert to cm
     leaf_data = []
     for i, contour in enumerate(leaf_contours):
-        shape_data = pcv.morphology.analyze_boundaries(img, contour)
+        shape_data = pcv.analyze_boundaries(img, contour)
         area_cm2 = shape_data['area'] / (PIXELS_PER_CM**2)
         perimeter_cm = shape_data['perimeter'] / PIXELS_PER_CM
         width_cm = shape_data['width'] / PIXELS_PER_CM
