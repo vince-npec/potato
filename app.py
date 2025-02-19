@@ -2,13 +2,14 @@ import streamlit as st
 import numpy as np
 import torch
 from ultralytics import YOLO
-from PIL import Image
+from PIL import Image, ImageDraw
 import pandas as pd
+import cv2
 
-# Load YOLOv8 model (Replace 'yolov8n.pt' with a fine-tuned model if available)
-model = YOLO("yolov8n.pt")
+# Load YOLOv8 model (Use a fine-tuned model if available)
+model = YOLO("yolov8n.pt")  # Replace with "best.pt" if you have a fine-tuned model
 
-# Function to process image and detect leaves
+# Function to process the image and extract leaf properties
 def process_image(image):
     # Convert PIL Image to NumPy array
     img = np.array(image)
@@ -16,37 +17,55 @@ def process_image(image):
     # Perform YOLO inference
     results = model(img)
 
-    # Extract detected objects (leaves)
-    leaf_count = 0
+    # Initialize mask and results list
+    mask = np.zeros_like(img[:, :, 0])  # Create a blank grayscale mask
+    leaf_data = []
+
+    # Loop through detected objects
     for result in results:
         for box in result.boxes:
-            leaf_count += 1  # Count the number of detected leaves
+            x1, y1, x2, y2 = map(int, box.xyxy[0])  # Bounding box
+            leaf_area = (x2 - x1) * (y2 - y1)
+            perimeter = 2 * ((x2 - x1) + (y2 - y1))
+            width, height = x2 - x1, y2 - y1
 
-    return leaf_count
+            # Draw the leaf on the mask
+            cv2.rectangle(mask, (x1, y1), (x2, y2), 255, thickness=-1)  # White leaf mask
+
+            leaf_data.append([x1, y1, x2, y2, leaf_area, perimeter, width, height])
+
+    return results, mask, leaf_data
 
 # Streamlit UI
-st.title("Potato Leaf Detection and Counting with YOLOv8")
-st.write("Upload images for automatic leaf detection and counting")
+st.title("Potato Leaf Detection & Phenotyping with YOLOv8")
+st.write("Upload images for **automatic leaf detection, size measurement, and segmentation mask generation.**")
 
 uploaded_files = st.file_uploader("Upload Image(s)", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
 
 if uploaded_files:
-    results = []
+    results_list = []
     for uploaded_file in uploaded_files:
         image = Image.open(uploaded_file)
-        leaf_count = process_image(image)
+        results, mask, leaf_data = process_image(image)
+
+        # Convert mask to PIL image
+        mask_pil = Image.fromarray(mask)
 
         # Display original image
         st.image(image, caption="Original Image", use_column_width=True)
-        st.write(f"**Detected Leaves:** {leaf_count}")
 
-        # Store results
-        results.append([uploaded_file.name, leaf_count])
+        # Display segmentation mask
+        st.image(mask_pil, caption="Leaf Segmentation Mask", use_column_width=True)
 
-    # Convert results to DataFrame and display
-    df = pd.DataFrame(results, columns=["Image", "Leaf Count"])
-    st.dataframe(df)
+        # Store results in DataFrame
+        df = pd.DataFrame(leaf_data, columns=["x1", "y1", "x2", "y2", "Leaf Area (px²)", "Perimeter (px)", "Width (px)", "Height (px)"])
+        df.insert(0, "Image", uploaded_file.name)
+        results_list.append(df)
+
+    # Combine all results into a single table
+    final_df = pd.concat(results_list, ignore_index=True)
+    st.dataframe(final_df)
 
     # Download results as CSV
-    csv = df.to_csv(index=False).encode('utf-8')
-    st.download_button("Download CSV", csv, "leaf_count_results.csv", "text/csv")
+    csv = final_df.to_csv(index=False).encode('utf-8')
+    st.download_button("Download CSV", csv, "leaf_measurements.csv", "text/csv")
