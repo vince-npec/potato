@@ -1,44 +1,46 @@
 import streamlit as st
 import numpy as np
-import torch
-from ultralytics import YOLO
-from PIL import Image, ImageDraw
 import pandas as pd
+from PIL import Image
 import cv2
+import plantcv as pcv
 
-# Load YOLOv8 model (Use a fine-tuned model if available)
-model = YOLO("yolov8n.pt")  # Replace with "best.pt" if you have a fine-tuned model
-
-# Function to process the image and extract leaf properties
+# Function to process image using PlantCV
 def process_image(image):
-    # Convert PIL Image to NumPy array
+    # Convert PIL image to OpenCV format
     img = np.array(image)
+    
+    # Convert to grayscale
+    gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
 
-    # Perform YOLO inference
-    results = model(img)
+    # Use PlantCV thresholding to segment leaves
+    _, mask = cv2.threshold(gray, 100, 255, cv2.THRESH_BINARY_INV)
 
-    # Initialize mask and results list
-    mask = np.zeros_like(img[:, :, 0])  # Create a blank grayscale mask
+    # Filter out small noise and non-leaf regions
+    mask = pcv.morphology.fill_holes(mask)
+    mask = pcv.morphology.closing(mask, 5)
+
+    # Find and measure leaf objects
+    analysis_image, leaf_contours, leaf_hierarchy = pcv.find_objects(img, mask)
+    leaf_count = len(leaf_contours)
+
+    # Measure leaf traits
     leaf_data = []
+    for i, contour in enumerate(leaf_contours):
+        shape_data = pcv.morphology.analyze_boundaries(img, contour)
+        leaf_data.append([
+            i + 1,  # Leaf number
+            shape_data['area'], 
+            shape_data['perimeter'], 
+            shape_data['width'], 
+            shape_data['height']
+        ])
 
-    # Loop through detected objects
-    for result in results:
-        for box in result.boxes:
-            x1, y1, x2, y2 = map(int, box.xyxy[0])  # Bounding box
-            leaf_area = (x2 - x1) * (y2 - y1)
-            perimeter = 2 * ((x2 - x1) + (y2 - y1))
-            width, height = x2 - x1, y2 - y1
-
-            # Draw the leaf on the mask
-            cv2.rectangle(mask, (x1, y1), (x2, y2), 255, thickness=-1)  # White leaf mask
-
-            leaf_data.append([x1, y1, x2, y2, leaf_area, perimeter, width, height])
-
-    return results, mask, leaf_data
+    return analysis_image, mask, leaf_data, leaf_count
 
 # Streamlit UI
-st.title("Potato Leaf Detection & Phenotyping with YOLOv8")
-st.write("Upload images for **automatic leaf detection, size measurement, and segmentation mask generation.**")
+st.title("Potato Leaf Detection & Phenotyping with PlantCV")
+st.write("Upload images for **automatic leaf segmentation, size measurement, and accuracy validation.**")
 
 uploaded_files = st.file_uploader("Upload Image(s)", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
 
@@ -46,19 +48,19 @@ if uploaded_files:
     results_list = []
     for uploaded_file in uploaded_files:
         image = Image.open(uploaded_file)
-        results, mask, leaf_data = process_image(image)
+        analysis_image, mask, leaf_data, leaf_count = process_image(image)
 
         # Convert mask to PIL image
         mask_pil = Image.fromarray(mask)
 
         # Display original image
-        st.image(image, caption="Original Image", use_column_width=True)
+        st.image(image, caption="Original Image", use_container_width=True)
 
-        # Display segmentation mask
-        st.image(mask_pil, caption="Leaf Segmentation Mask", use_column_width=True)
+        # Display PlantCV segmentation mask
+        st.image(mask_pil, caption="Leaf Segmentation Mask", use_container_width=True)
 
         # Store results in DataFrame
-        df = pd.DataFrame(leaf_data, columns=["x1", "y1", "x2", "y2", "Leaf Area (px²)", "Perimeter (px)", "Width (px)", "Height (px)"])
+        df = pd.DataFrame(leaf_data, columns=["Leaf #", "Leaf Area (px²)", "Perimeter (px)", "Width (px)", "Height (px)"])
         df.insert(0, "Image", uploaded_file.name)
         results_list.append(df)
 
