@@ -2,42 +2,36 @@ import streamlit as st
 import cv2
 import numpy as np
 import os
-from skimage.measure import regionprops, label
-from skimage.morphology import remove_small_objects
+import torch
+from ultralytics import YOLO
 from PIL import Image
 import pandas as pd
+
+# Load YOLOv8 model for leaf detection
+model = YOLO("yolov8n.pt")  # Replace with a fine-tuned model for leaves if available
 
 # Function to process image
 def process_image(image):
     # Convert to OpenCV format
     img = np.array(image)
-    gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
     
-    # Apply thresholding for segmentation
-    _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    # Perform YOLO inference
+    results = model(img)
     
-    # Remove small noise
-    binary = remove_small_objects(label(binary), min_size=500)
-    binary = (binary > 0).astype(np.uint8) * 255
+    # Extract detected objects
+    leaf_count = 0
+    for result in results:
+        for box in result.boxes:
+            if box.cls == 0:  # Adjust class ID if needed
+                leaf_count += 1
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
     
-    # Find contours
-    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    
-    # Compute phenotypic features
-    data = []
-    for cnt in contours:
-        area = cv2.contourArea(cnt)
-        perimeter = cv2.arcLength(cnt, True)
-        x, y, w, h = cv2.boundingRect(cnt)
-        eccentricity = max(w, h) / min(w, h) if min(w, h) > 0 else 0
-        circularity = 4 * np.pi * area / (perimeter ** 2) if perimeter > 0 else 0
-        data.append([area, perimeter, eccentricity, circularity])
-    
-    return binary, data
+    return img, leaf_count
 
 # Streamlit UI
-st.title("Potato Leaf Phenotyping")
-st.write("Upload images for phenotyping analysis")
+st.title("Potato Leaf Phenotyping with YOLOv8")
+st.write("Upload images for leaf detection and counting")
 
 uploaded_files = st.file_uploader("Upload Image(s)", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
 
@@ -45,21 +39,19 @@ if uploaded_files:
     results = []
     for uploaded_file in uploaded_files:
         image = Image.open(uploaded_file)
-        binary, features = process_image(image)
+        processed_img, leaf_count = process_image(image)
         
         # Display images
         st.image(image, caption="Original Image", use_column_width=True)
-        st.image(binary, caption="Segmented Image", use_column_width=True, clamp=True)
+        st.image(processed_img, caption=f"Processed Image (Leaf Count: {leaf_count})", use_column_width=True)
         
         # Store results
-        for feature in features:
-            results.append([uploaded_file.name] + feature)
+        results.append([uploaded_file.name, leaf_count])
     
     # Convert results to DataFrame and display
-    if results:
-        df = pd.DataFrame(results, columns=["Image", "Area", "Perimeter", "Eccentricity", "Circularity"])
-        st.dataframe(df)
+    df = pd.DataFrame(results, columns=["Image", "Leaf Count"])
+    st.dataframe(df)
 
-        # Download results
-        csv = df.to_csv(index=False).encode('utf-8')
-        st.download_button("Download CSV", csv, "phenotyping_results.csv", "text/csv")
+    # Download results
+    csv = df.to_csv(index=False).encode('utf-8')
+    st.download_button("Download CSV", csv, "leaf_count_results.csv", "text/csv")
